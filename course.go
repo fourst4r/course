@@ -22,12 +22,12 @@ type (
 	Text struct {
 		Content        string
 		ScaleX, ScaleY float64
-		Color          color.Color
+		Color          color.RGBA
 	}
 	Line struct {
 		Erase     bool
 		Thickness int
-		Color     color.Color
+		Color     color.RGBA
 		Segments  []XY
 	}
 )
@@ -111,16 +111,27 @@ type Course struct {
 func Default() *Course {
 	c := new(Course)
 	c.BackgroundColor = hex2col(0xbbbbdd)
+	c.BackgroundImage = -1
 	c.MaxTime = 120
 	c.Gravity = 1.0
 	c.CowboyChance = 5
 	c.GameMode = "race"
 	c.Items = []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
 	c.Blocks = make(Layer)
-	c.Blocks.Push(12390, 10060, 11)
-	c.Blocks.Push(12420, 10060, 12)
-	c.Blocks.Push(12450, 10060, 13)
-	c.Blocks.Push(12480, 10060, 14)
+	c.Stamp1 = make(Layer)
+	c.Stamp2 = make(Layer)
+	c.Stamp3 = make(Layer)
+	c.Line1 = make(Layer)
+	c.Line2 = make(Layer)
+	c.Line3 = make(Layer)
+	c.Stamp00 = make(Layer)
+	c.Stamp0 = make(Layer)
+	c.Line00 = make(Layer)
+	c.Line0 = make(Layer)
+	c.Blocks.Push(12390, 10060, 111)
+	c.Blocks.Push(12420, 10060, 112)
+	c.Blocks.Push(12450, 10060, 113)
+	c.Blocks.Push(12480, 10060, 114)
 	return c
 }
 
@@ -148,7 +159,7 @@ func parseBlocks(format, data string) (blocks Layer, err error) {
 					curT -= 100
 				}
 			}
-
+			// normalize blocks to pixel coords, like everything else
 			blocks.Push(curX*30, curY*30, curT)
 		}
 	}
@@ -480,13 +491,13 @@ func (c *Course) formatBlocks() string {
 	for xy, stack := range c.Blocks {
 		for _, block := range stack {
 			sb.WriteByte(',')
-			sb.WriteString(strconv.Itoa(curX - xy.X))
+			sb.WriteString(strconv.Itoa((xy.X - curX) / 30))
 			curX = xy.X
-			if curY != xy.Y {
-				sb.WriteByte(';')
-				sb.WriteString(strconv.Itoa(curY - xy.Y))
-				curY = xy.Y
-			}
+			// if curY != xy.Y {
+			sb.WriteByte(';')
+			sb.WriteString(strconv.Itoa((xy.Y - curY) / 30))
+			curY = xy.Y
+			// }
 			if curT != block.(int) {
 				curT = block.(int)
 				sb.WriteByte(';')
@@ -508,23 +519,30 @@ func formatStamps(layer Layer) string {
 	for xy, stack := range layer {
 		for _, stamp := range stack {
 			sb.WriteByte(',')
-			sb.WriteString(strconv.Itoa(curX - xy.X))
+			sb.WriteString(strconv.Itoa(xy.X - curX))
 			curX = xy.X
-			if curY != xy.Y {
-				sb.WriteByte(';')
-				sb.WriteString(strconv.Itoa(curY - xy.Y))
-				curY = xy.Y
-			}
+			// if curY != xy.Y {
+			sb.WriteByte(';')
+			sb.WriteString(strconv.Itoa(xy.Y - curY))
+			curY = xy.Y
+			// }
 			switch v := stamp.(type) {
 			case Text:
-				r, g, b, _ := v.Color.RGBA()
-				sb.WriteString(fmt.Sprintf(";t;%s;%x;%d;%d",
-					v.Content, r<<16|b<<8|g, int(v.ScaleX*100), int(v.ScaleY*100)))
+				// r, g, b, _ := v.Color.RGBA()
+				// fmt.Printf("r%d g%d b%d\n", r, g, b)
+				col := uint32(v.Color.R)<<16 | uint32(v.Color.G)<<8 | uint32(v.Color.B)
+				sb.WriteString(fmt.Sprintf(";t;%s;%d;%d;%d",
+					v.Content, col, int(v.ScaleX*100), int(v.ScaleY*100)))
 			case Stamp:
+				// TODO
 			default:
+				// TODO
 			}
 
 		}
+	}
+	if sb.Len() == 0 {
+		return ""
 	}
 	return sb.String()[1:]
 }
@@ -571,17 +589,22 @@ func formatBool(b bool) string {
 }
 
 func (c *Course) formatItems() string {
+	if len(c.Items) == 0 {
+		return ""
+	}
 	itemStrings := []string{"Laser Gun", "Mine", "Lightning", "Teleport", "Super Jump", "Jet Pack", "Speed Burst", "Sword", "Ice Wave"}
 	var sb strings.Builder
-	for _, item := range c.Items {
+	sb.WriteString(itemStrings[c.Items[0]])
+	for i := 1; i < len(c.Items); i++ {
 		sb.WriteByte('`')
-		sb.WriteString(itemStrings[item])
+		sb.WriteString(itemStrings[c.Items[i]-1])
 	}
-	return sb.String()[1:]
+	return sb.String()
 }
 
 // String returns a formatted course that can be uploaded to PR2.
 func (c *Course) String(user string) string {
+	c.queries = make(map[string]string)
 	c.queries["live"] = formatBool(c.Live)
 	c.queries["hasPass"] = formatBool(c.HasPass)
 	c.queries["title"] = url.QueryEscape(c.Title)
