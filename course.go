@@ -95,7 +95,7 @@ type Course struct {
 	Song            int
 	CowboyChance    int
 	Items           []int
-	BackgroundColor color.RGBA
+	BackgroundColor color.Color
 	BackgroundImage int
 
 	Blocks                                  Layer
@@ -148,13 +148,25 @@ func parseBlocks(format, data string) (blocks Layer, err error) {
 
 			e := strings.Split(o, ";")
 			dx, err = strconv.Atoi(e[0])
+			if err != nil {
+				err = fmt.Errorf("block dx: %v", err)
+				return
+			}
 			curX += dx
 			if len(e) > 1 {
 				dy, err = strconv.Atoi(e[1])
+				if err != nil {
+					err = fmt.Errorf("block dy: %v", err)
+					return
+				}
 				curY += dy
 			}
 			if len(e) > 2 {
 				curT, err = strconv.Atoi(e[2])
+				if err != nil {
+					err = fmt.Errorf("block t: %v", err)
+					return
+				}
 				if curT > 100 {
 					curT -= 100
 				}
@@ -317,11 +329,13 @@ func (c *Course) parseData(data string) error {
 	split := strings.Split(data, "`")
 	format := split[0]
 
-	hex, err := strconv.ParseUint(split[1], 16, 32)
+	var err error
+	// hex, err := strconv.ParseUint(split[1], 16, 32)
+	c.BackgroundColor, err = parseColor(split[1])
 	if err != nil {
 		return fmt.Errorf("background color: %v", err)
 	}
-	c.BackgroundColor = hex2col(uint(hex))
+	// c.BackgroundColor = hex2col(uint(hex))
 
 	c.Blocks, err = parseBlocks(format, split[2])
 	if err != nil {
@@ -485,10 +499,21 @@ func Parse(data string) (*Course, error) {
 	return c, nil
 }
 
-func (c *Course) formatBlocks() string {
+func formatColor(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return strconv.FormatUint(uint64(r<<16|g<<8|b), 16)
+}
+
+func parseColor(s string) (col color.Color, err error) {
+	hex, err := strconv.ParseUint(s, 16, 32)
+	col = hex2col(uint(hex))
+	return
+}
+
+func formatBlocks(blocks Layer) string {
 	var sb strings.Builder
 	var curX, curY, curT int
-	for xy, stack := range c.Blocks {
+	for xy, stack := range blocks {
 		for _, block := range stack {
 			sb.WriteByte(',')
 			sb.WriteString(strconv.Itoa((xy.X - curX) / 30))
@@ -508,11 +533,6 @@ func (c *Course) formatBlocks() string {
 	return sb.String()[1:]
 }
 
-// func formatColor(c color.Color) string {
-// 	r, g, b, _ := c.RGBA()
-// 	return strconv.FormatUint(r<<16|g<<8|b, 16)
-// }
-
 func formatStamps(layer Layer) string {
 	var sb strings.Builder
 	var curX, curY int
@@ -521,16 +541,16 @@ func formatStamps(layer Layer) string {
 			sb.WriteByte(',')
 			sb.WriteString(strconv.Itoa(xy.X - curX))
 			curX = xy.X
-			// if curY != xy.Y {
+
 			sb.WriteByte(';')
 			sb.WriteString(strconv.Itoa(xy.Y - curY))
 			curY = xy.Y
-			// }
+
 			switch v := stamp.(type) {
 			case Text:
-				// r, g, b, _ := v.Color.RGBA()
-				// fmt.Printf("r%d g%d b%d\n", r, g, b)
-				col := uint32(v.Color.R)<<16 | uint32(v.Color.G)<<8 | uint32(v.Color.B)
+				// color is NOT hex encoded here
+				r, g, b, _ := v.Color.RGBA()
+				col := r<<16 | g<<8 | b
 				sb.WriteString(fmt.Sprintf(";t;%s;%d;%d;%d",
 					v.Content, col, int(v.ScaleX*100), int(v.ScaleY*100)))
 			case Stamp:
@@ -552,10 +572,11 @@ func formatLines(layer Layer) string {
 }
 
 func (c *Course) formatData() string {
+
 	fields := make([]string, 14)
 	fields[0] = currentDataFormat
-	fields[1] = hex.EncodeToString([]byte{c.BackgroundColor.R, c.BackgroundColor.G, c.BackgroundColor.B})
-	fields[2] = c.formatBlocks()
+	fields[1] = formatColor(c.BackgroundColor) //hex.EncodeToString([]byte{c.BackgroundColor.R, c.BackgroundColor.G, c.BackgroundColor.B})
+	fields[2] = formatBlocks(c.Blocks)
 	fields[3] = formatStamps(c.Stamp1)
 	fields[4] = formatStamps(c.Stamp2)
 	fields[5] = formatStamps(c.Stamp3)
