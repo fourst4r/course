@@ -128,10 +128,10 @@ func Default() *Course {
 	c.Stamp0 = make(Layer)
 	c.Line00 = make(Layer)
 	c.Line0 = make(Layer)
-	c.Blocks.Push(12390, 10060, 111)
-	c.Blocks.Push(12420, 10060, 112)
-	c.Blocks.Push(12450, 10060, 113)
-	c.Blocks.Push(12480, 10060, 114)
+	c.Blocks.Push(12390, 10050, 111)
+	c.Blocks.Push(12420, 10050, 112)
+	c.Blocks.Push(12450, 10050, 113)
+	c.Blocks.Push(12480, 10050, 114)
 	return c
 }
 
@@ -167,9 +167,9 @@ func parseBlocks(format, data string) (blocks Layer, err error) {
 					err = fmt.Errorf("block t: %v", err)
 					return
 				}
-				if curT > 100 {
-					curT -= 100
-				}
+				// if curT > 100 {
+				// 	curT -= 100
+				// }
 			}
 			// normalize blocks to pixel coords, like everything else
 			blocks.Push(curX*30, curY*30, curT)
@@ -478,7 +478,7 @@ func Parse(data string) (*Course, error) {
 		case "min_level":
 			c.MinRank, err = strconv.Atoi(value)
 		case "song":
-			if value == "" {
+			if value == "" || value == "random" {
 				c.Song = 0
 			} else {
 				c.Song, err = strconv.Atoi(value)
@@ -501,7 +501,7 @@ func Parse(data string) (*Course, error) {
 
 func formatColor(c color.Color) string {
 	r, g, b, _ := c.RGBA()
-	return strconv.FormatUint(uint64(r<<16|g<<8|b), 16)
+	return strconv.FormatUint(uint64((r>>8)<<16|(g>>8)<<8|(b>>8)), 16)
 }
 
 func parseColor(s string) (col color.Color, err error) {
@@ -572,7 +572,6 @@ func formatLines(layer Layer) string {
 }
 
 func (c *Course) formatData() string {
-
 	fields := make([]string, 14)
 	fields[0] = currentDataFormat
 	fields[1] = formatColor(c.BackgroundColor) //hex.EncodeToString([]byte{c.BackgroundColor.R, c.BackgroundColor.G, c.BackgroundColor.B})
@@ -597,7 +596,7 @@ func formatQuery(query map[string]string) string {
 		sb.WriteByte('&')
 		sb.WriteString(name)
 		sb.WriteByte('=')
-		sb.WriteString(value)
+		sb.WriteString(url.QueryEscape(value))
 	}
 	return sb.String()[1:]
 }
@@ -613,23 +612,23 @@ func (c *Course) formatItems() string {
 	if len(c.Items) == 0 {
 		return ""
 	}
-	itemStrings := []string{"Laser Gun", "Mine", "Lightning", "Teleport", "Super Jump", "Jet Pack", "Speed Burst", "Sword", "Ice Wave"}
+	// itemStrings := []string{"Laser Gun", "Mine", "Lightning", "Teleport", "Super Jump", "Jet Pack", "Speed Burst", "Sword", "Ice Wave"}
 	var sb strings.Builder
-	sb.WriteString(itemStrings[c.Items[0]])
+	sb.WriteString(strconv.FormatInt(int64(c.Items[0]), 32)) // sb.WriteString(itemStrings[c.Items[0]])
 	for i := 1; i < len(c.Items); i++ {
 		sb.WriteByte('`')
-		sb.WriteString(itemStrings[c.Items[i]-1])
+		sb.WriteString(strconv.FormatInt(int64(c.Items[i]), 32)) // sb.WriteString(itemStrings[c.Items[i]-1])
 	}
 	return sb.String()
 }
 
 // String returns a formatted course that can be uploaded to PR2.
-func (c *Course) String(user string) string {
+func (c *Course) String(user, token string) string {
 	c.queries = make(map[string]string)
 	c.queries["live"] = formatBool(c.Live)
 	c.queries["hasPass"] = formatBool(c.HasPass)
-	c.queries["title"] = url.QueryEscape(c.Title)
-	c.queries["note"] = url.QueryEscape(c.Note)
+	c.queries["title"] = c.Title
+	c.queries["note"] = c.Note
 	c.queries["gameMode"] = c.GameMode
 	c.queries["credits"] = strings.Join(c.Credits, "`")
 	c.queries["gravity"] = strconv.FormatFloat(c.Gravity, 'f', 2, 64)
@@ -639,15 +638,38 @@ func (c *Course) String(user string) string {
 	c.queries["cowboyChance"] = strconv.Itoa(c.CowboyChance)
 	c.queries["items"] = c.formatItems()
 	c.queries["data"] = c.formatData()
-
 	if p := strings.ReplaceAll(c.Pass, "*", ""); p != "" {
 		c.queries["passHash"] = md5str(p + "WGZSL3JWcUE9L3Q4YipZIQ==")
 	} else {
 		c.queries["passHash"] = ""
 	}
 	c.queries["hash"] = md5str(c.Title + strings.ToLower(user) + c.queries["data"] + "84ge5tnr")
-
+	c.queries["token"] = token
 	return formatQuery(c.queries)
+}
+
+func (c *Course) Upload(user, token string) string {
+	queries := make(map[string]string)
+	queries["title"] = c.Title
+	queries["note"] = c.Note
+	queries["data"] = c.formatData()
+	queries["live"] = formatBool(c.Live)
+	queries["min_level"] = strconv.Itoa(c.MinRank)
+	queries["song"] = strconv.Itoa(c.Song)
+	queries["gravity"] = strconv.FormatFloat(c.Gravity, 'f', 2, 64)
+	queries["max_time"] = strconv.Itoa(c.MaxTime)
+	queries["items"] = c.formatItems()
+	queries["hash"] = md5str(c.Title + strings.ToLower(user) + queries["data"] + "84ge5tnr")
+	if p := strings.ReplaceAll(c.Pass, "*", ""); p != "" {
+		queries["passHash"] = md5str(p + "WGZSL3JWcUE9L3Q4YipZIQ==")
+	} else {
+		queries["passHash"] = ""
+	}
+	queries["hasPass"] = formatBool(c.HasPass)
+	queries["gameMode"] = c.GameMode
+	queries["cowboyChance"] = strconv.Itoa(c.CowboyChance)
+	queries["token"] = token
+	return formatQuery(queries)
 }
 
 func md5str(s string) string {
